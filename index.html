@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Backrooms: juego en primera persona hecho en Vanilla JS con raycasting en Canvas 2D y audio espacial generado con la Web Audio API.">
   <title>Backrooms</title>
+  <link rel="icon" href="data:,">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -13,28 +15,37 @@
       cursor: crosshair;
     }
     #game { display: block; width: 100vw; height: 100vh; }
-    #overlay {
+    .screen {
       position: fixed;
       inset: 0;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: rgba(0, 0, 0, 0.85);
       color: #c9a227;
-      z-index: 10;
       text-align: center;
       padding: 2rem;
     }
-    #overlay h1 {
+    #overlay { background: rgba(0, 0, 0, 0.85); z-index: 10; }
+    #overlay h1, .screen h2 {
       font-size: clamp(2rem, 6vw, 3.5rem);
       letter-spacing: 0.3em;
       margin-bottom: 0.5rem;
-      text-shadow: 0 0 20px #c9a227;
+      text-shadow: 0 0 20px currentColor;
     }
-    #overlay p { color: #a08030; margin: 0.4rem 0; font-size: 1rem; }
-    #overlay .hint { color: #666; font-size: 0.85rem; margin-top: 1.5rem; }
-    #overlay button {
+    .screen p { color: #a08030; margin: 0.4rem 0; font-size: 1rem; }
+    .controls {
+      margin-top: 1.5rem;
+      display: grid;
+      grid-template-columns: auto auto;
+      gap: 0.35rem 1.25rem;
+      color: #8a7030;
+      font-size: 0.85rem;
+      text-align: left;
+    }
+    .controls kbd { color: #e8c84a; font-family: inherit; }
+    .note { color: #888; font-size: 0.9rem; margin-top: 1.5rem; max-width: 28rem; }
+    .screen button {
       margin-top: 2rem;
       padding: 0.8rem 2.5rem;
       font-family: inherit;
@@ -45,7 +56,7 @@
       cursor: pointer;
       letter-spacing: 0.15em;
     }
-    #overlay button:hover { background: #5a4e00; }
+    .screen button:hover { background: #5a4e00; }
     #back {
       position: fixed;
       top: 1rem;
@@ -56,65 +67,75 @@
       z-index: 20;
     }
     #back:hover { color: #e8c84a; text-decoration: underline; }
-    #hud {
-      position: fixed;
-      bottom: 1rem;
-      left: 1rem;
-      color: #c9a22788;
-      font-size: 0.8rem;
-      z-index: 5;
-      pointer-events: none;
-    }
-    #win {
+    #win { display: none; background: rgba(4, 20, 8, 0.92); color: #5fe08a; z-index: 15; }
+    #win p { color: #7fbf8f; }
+    #caught { display: none; background: rgba(20, 0, 0, 0.9); color: #e04040; z-index: 15; }
+    #caught p { color: #c07070; }
+    #scare {
       position: fixed;
       inset: 0;
       display: none;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      background: rgba(10, 8, 0, 0.92);
-      color: #e8c84a;
-      z-index: 15;
-      text-align: center;
+      z-index: 30;
+      background: #000 center / cover no-repeat;
+      animation: scare 0.9s steps(18) forwards;
     }
-    #win h2 { font-size: 2rem; margin-bottom: 1rem; }
-    #win button {
-      margin-top: 1.5rem;
-      padding: 0.7rem 2rem;
-      font-family: inherit;
-      background: #3a3200;
-      color: #e8c84a;
-      border: 2px solid #c9a227;
-      cursor: pointer;
+    @keyframes scare {
+      0% { transform: scale(1.6) translate(0, 0); filter: contrast(1.8) saturate(1.6) brightness(1.4); }
+      20% { transform: scale(1.75) translate(-2%, 1%); }
+      40% { transform: scale(1.7) translate(2%, -1%); filter: contrast(2) hue-rotate(-20deg) brightness(1.2); }
+      60% { transform: scale(1.8) translate(-1%, -2%); }
+      100% { transform: scale(2) translate(0, 0); filter: contrast(2.2) brightness(0.2); opacity: 0.85; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #scare { animation: none; }
     }
   </style>
 </head>
 <body>
-  <canvas id="game"></canvas>
-  <div id="hud">WASD mover · Mouse mirar · Esc liberar el mouse</div>
+  <canvas id="game" aria-label="Vista en primera persona de los Backrooms"></canvas>
   <a id="back" href="https://ferjoo.github.io">← ferjoo.github.io</a>
 
-  <div id="overlay">
+  <div id="overlay" class="screen">
     <h1>BACKROOMS</h1>
     <p>Has caído entre la realidad.</p>
     <p>Alfombras húmedas. Paredes amarillas. Luces que zumban.</p>
-    <p>Encuentra la salida antes de que el tiempo se acabe.</p>
-    <p class="hint">Haz clic en "Entrar" · WASD para moverte · mouse para mirar · Esc para liberar el mouse</p>
+    <p>Algo camina por los pasillos. Encuentra la <span style="color:#5fe08a">salida verde</span> antes de que te atrape.</p>
+    <div class="controls" id="controls">
+      <kbd>WASD / flechas</kbd><span>moverte (← → giran)</span>
+      <kbd>Mouse</kbd><span>mirar</span>
+      <kbd>Shift</kbd><span>correr (gasta energía)</span>
+      <kbd>M</kbd><span>silenciar el audio</span>
+      <kbd>Esc</kbd><span>liberar el mouse</span>
+    </div>
+    <p class="note">Usa audífonos: el audio es espacial y te dice de qué lado viene.</p>
     <button id="startBtn">ENTRAR</button>
   </div>
 
-  <div id="win">
+  <div id="win" class="screen">
     <h2>ESCAPASTE</h2>
+    <p id="winTime"></p>
     <p>Lograste salir de los Backrooms... por ahora.</p>
-    <button id="retryBtn">JUGAR DE NUEVO</button>
+    <button id="winRetry">JUGAR DE NUEVO</button>
   </div>
+
+  <div id="caught" class="screen">
+    <h2>TE ATRAPÓ</h2>
+    <p id="caughtTime"></p>
+    <p>Presiona R o haz clic para intentarlo de nuevo.</p>
+    <button id="caughtRetry">REINTENTAR</button>
+  </div>
+
+  <div id="scare" aria-hidden="true"></div>
 
   <script>
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d");
     const overlay = document.getElementById("overlay");
     const winScreen = document.getElementById("win");
+    const caughtScreen = document.getElementById("caught");
+    const scare = document.getElementById("scare");
 
+    // 1 = wall, E = exit doorway (a wall cell the player walks into), 0 = floor.
     const MAP = [
       "11111111111111111",
       "10000000010000001",
@@ -129,242 +150,722 @@
       "10101111111110101",
       "10000000000000001",
       "10111111111111101",
-      "10000000000000001",
+      "1000000000000000E",
       "11111111111111111",
     ];
-
     const W = MAP[0].length;
     const H = MAP.length;
-    const EXIT = { x: 15, y: 13 };
-    const TIME_LIMIT = 120;
-
-    let player = { x: 1.5, y: 1.5, angle: 0 };
-    let keys = {};
-    let running = false;
-    let won = false;
-    let timeLeft = TIME_LIMIT;
-    let flicker = 1;
-    let lastTime = 0;
+    const EXIT = { x: 16, y: 13 };
+    const GRID = new Uint8Array(W * H); // 0 floor, 1 wall, 2 exit
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const c = MAP[y][x];
+        GRID[y * W + x] = c === "1" ? 1 : c === "E" ? 2 : 0;
+      }
+    }
 
     const FOV = Math.PI / 3;
-    const RAYS = 200;
     const MAX_DEPTH = 16;
-    const MOVE_SPEED = 2.8;
+    const WALK_SPEED = 2.6;
+    const RUN_SPEED = 4.4;
     const ROT_SPEED = 2.2;
+    const ENTITY_SPEED = 3.0;
+    const ENTITY_MAX_SPEED = 3.6;
+    const GRACE = 5;
+    const CATCH_DIST = 0.5;
+    const IS_TOUCH = window.matchMedia("(pointer: coarse)").matches && !window.matchMedia("(pointer: fine)").matches;
+
+    // Mutated in place (never reassigned) so the debug hook keeps valid references.
+    const player = { x: 1.5, y: 1.5, angle: 0, stamina: 1 };
+    const entity = { x: 0, y: 0, active: false, seen: false, speed: ENTITY_SPEED, stepTimer: 0 };
+    const keys = Object.create(null);
+    let state = "menu"; // menu | playing | won | caught
+    let elapsed = 0;
+    let flicker = 1;
+    let lastTime = 0;
+    let pathTimer = 0;
+    let heartTimer = 0;
+    let exhausted = false;
+    let muted = false;
+    let lineOfSight = false;
+
+    // ---------- Render buffers, rebuilt only on resize ----------
+    let RAYS = 0;
+    let zBuffer = new Float32Array(1);
+    let ceilGrad, floorGrad, vignette, redVignette;
+    const SHADES = 64;
+    const pal = { wall: [], side: [], stripe: [], base: [], exit: [], frame: [] };
+    function rgb(r, g, b) { return `rgb(${r | 0},${g | 0},${b | 0})`; }
+    for (let i = 0; i < SHADES; i++) {
+      const s = i / (SHADES - 1);
+      pal.wall.push(rgb(190 * s + 30, 160 * s + 24, 50 * s + 4));
+      pal.side.push(rgb(160 * s + 24, 134 * s + 20, 40 * s + 4));
+      pal.stripe.push(rgb(150 * s + 22, 124 * s + 18, 36 * s + 4));
+      pal.base.push(rgb(70 * s + 10, 58 * s + 8, 18 * s + 2));
+      pal.exit.push(rgb(40 * s + 10, 230 * s + 20, 110 * s + 10));
+      pal.frame.push(rgb(20 * s + 4, 70 * s + 8, 34 * s + 4));
+    }
 
     function resize() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
+      RAYS = Math.max(120, Math.min(420, Math.floor(canvas.width / 3)));
+      zBuffer = new Float32Array(RAYS);
+      const w = canvas.width, h = canvas.height, mid = h / 2;
+      ceilGrad = ctx.createLinearGradient(0, 0, 0, mid);
+      ceilGrad.addColorStop(0, "#1a1400");
+      ceilGrad.addColorStop(1, "#2a2208");
+      floorGrad = ctx.createLinearGradient(0, mid, 0, h);
+      floorGrad.addColorStop(0, "#3d3510");
+      floorGrad.addColorStop(1, "#2a2408");
+      vignette = ctx.createRadialGradient(w / 2, mid, h * 0.2, w / 2, mid, h * 0.85);
+      vignette.addColorStop(0, "rgba(0,0,0,0)");
+      vignette.addColorStop(1, "rgba(0,0,0,0.6)");
+      redVignette = ctx.createRadialGradient(w / 2, mid, h * 0.25, w / 2, mid, h * 0.9);
+      redVignette.addColorStop(0, "rgba(120,0,0,0)");
+      redVignette.addColorStop(1, "rgba(140,0,0,0.75)");
     }
     window.addEventListener("resize", resize);
     resize();
 
-    function isWall(x, y) {
-      const col = Math.floor(x);
-      const row = Math.floor(y);
-      if (row < 0 || row >= H || col < 0 || col >= W) return true;
-      return MAP[row][col] === "1";
+    const face = new Image();
+    let faceReady = false;
+    face.onload = () => { faceReady = true; };
+    face.src = "assets/ye.jpeg";
+    scare.style.backgroundImage = 'url("assets/ye.jpeg")';
+
+    // ---------- Grid helpers ----------
+    function cellAt(x, y) {
+      const col = Math.floor(x), row = Math.floor(y);
+      if (row < 0 || row >= H || col < 0 || col >= W) return 1;
+      return GRID[row * W + col];
+    }
+    function isWall(x, y) { return cellAt(x, y) !== 0; }
+
+    function tryMove(obj, nx, ny, margin) {
+      if (!isWall(nx + margin, obj.y) && !isWall(nx - margin, obj.y)) obj.x = nx;
+      if (!isWall(obj.x, ny + margin) && !isWall(obj.x, ny - margin)) obj.y = ny;
     }
 
-    function tryMove(nx, ny) {
-      const margin = 0.22;
-      if (!isWall(nx + margin, player.y) && !isWall(nx - margin, player.y)) player.x = nx;
-      if (!isWall(player.x, ny + margin) && !isWall(player.x, ny - margin)) player.y = ny;
-    }
-
-    function castRay(angle) {
-      const sin = Math.sin(angle);
-      const cos = Math.cos(angle);
-      let depth = 0;
-      while (depth < MAX_DEPTH) {
-        depth += 0.02;
-        const rx = player.x + cos * depth;
-        const ry = player.y + sin * depth;
-        if (isWall(rx, ry)) {
-          const dist = depth * Math.cos(angle - player.angle);
-          return Math.max(dist, 0.0001);
-        }
+    function hasLineOfSight(ax, ay, bx, by) {
+      const dx = bx - ax, dy = by - ay;
+      const steps = Math.ceil(Math.hypot(dx, dy) / 0.1);
+      for (let i = 1; i < steps; i++) {
+        if (isWall(ax + (dx * i) / steps, ay + (dy * i) / steps)) return false;
       }
-      return MAX_DEPTH;
+      return true;
     }
 
-    function drawCeilingFloor() {
-      const h = canvas.height;
-      const w = canvas.width;
-      const mid = h / 2;
+    // Breadth-first distance field from the player; the entity walks down the gradient.
+    const distField = new Int16Array(W * H);
+    const queue = new Int16Array(W * H);
+    function computeDistanceField() {
+      distField.fill(-1);
+      const start = Math.floor(player.y) * W + Math.floor(player.x);
+      let head = 0, tail = 0;
+      distField[start] = 0;
+      queue[tail++] = start;
+      while (head < tail) {
+        const cur = queue[head++];
+        const cx = cur % W, cy = (cur / W) | 0;
+        const d = distField[cur] + 1;
+        if (cx > 0 && GRID[cur - 1] === 0 && distField[cur - 1] < 0) { distField[cur - 1] = d; queue[tail++] = cur - 1; }
+        if (cx < W - 1 && GRID[cur + 1] === 0 && distField[cur + 1] < 0) { distField[cur + 1] = d; queue[tail++] = cur + 1; }
+        if (cy > 0 && GRID[cur - W] === 0 && distField[cur - W] < 0) { distField[cur - W] = d; queue[tail++] = cur - W; }
+        if (cy < H - 1 && GRID[cur + W] === 0 && distField[cur + W] < 0) { distField[cur + W] = d; queue[tail++] = cur + W; }
+      }
+    }
 
-      const ceilGrad = ctx.createLinearGradient(0, 0, 0, mid);
-      ceilGrad.addColorStop(0, "#1a1400");
-      ceilGrad.addColorStop(1, "#2a2208");
+    function spawnEntity() {
+      computeDistanceField();
+      let best = -1, bestD = -1;
+      for (let i = 0; i < W * H; i++) {
+        if (distField[i] < 0) continue;
+        const x = i % W, y = (i / W) | 0;
+        if (Math.hypot(x - EXIT.x, y - EXIT.y) < 6) continue;
+        if (distField[i] > bestD) { bestD = distField[i]; best = i; }
+      }
+      entity.x = (best % W) + 0.5;
+      entity.y = ((best / W) | 0) + 0.5;
+      entity.active = true;
+      entity.seen = false;
+      entity.speed = ENTITY_SPEED;
+      entity.stepTimer = 0;
+    }
+
+    // ---------- Audio (everything is synthesized; no files) ----------
+    let actx = null, master, entityBus, entityFilter, panner, noiseBuf, heartBus;
+
+    function initAudio() {
+      if (actx) { if (actx.state === "suspended") actx.resume(); return; }
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      actx = new AC();
+      master = actx.createGain();
+      master.gain.value = muted ? 0 : 0.9;
+      master.connect(actx.destination);
+
+      noiseBuf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate);
+      const data = noiseBuf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+
+      // Fluorescent hum: mains fundamental, its harmonic and a thin electrical buzz.
+      const hum = actx.createGain();
+      hum.gain.value = 0.045;
+      hum.connect(master);
+      const mains = actx.createOscillator();
+      mains.type = "sawtooth";
+      mains.frequency.value = 60;
+      const mainsLp = actx.createBiquadFilter();
+      mainsLp.type = "lowpass";
+      mainsLp.frequency.value = 260;
+      mains.connect(mainsLp).connect(hum);
+      const harmonic = actx.createOscillator();
+      harmonic.frequency.value = 120;
+      const harmonicGain = actx.createGain();
+      harmonicGain.gain.value = 0.5;
+      harmonic.connect(harmonicGain).connect(hum);
+      const buzz = noiseSource(true);
+      const buzzBp = actx.createBiquadFilter();
+      buzzBp.type = "bandpass";
+      buzzBp.frequency.value = 4200;
+      buzzBp.Q.value = 3;
+      const buzzGain = actx.createGain();
+      buzzGain.gain.value = 0.35;
+      buzz.connect(buzzBp).connect(buzzGain).connect(hum);
+      const wobble = actx.createOscillator();
+      wobble.frequency.value = 0.7;
+      const wobbleDepth = actx.createGain();
+      wobbleDepth.gain.value = 0.012;
+      wobble.connect(wobbleDepth).connect(hum.gain);
+      mains.start(); harmonic.start(); buzz.start(); wobble.start();
+
+      // Entity voice: positioned in 3D with HRTF; walls muffle it through the low-pass.
+      entityBus = actx.createGain();
+      entityBus.gain.value = 0;
+      entityFilter = actx.createBiquadFilter();
+      entityFilter.type = "lowpass";
+      entityFilter.frequency.value = 8000;
+      panner = new PannerNode(actx, {
+        panningModel: "HRTF",
+        distanceModel: "inverse",
+        refDistance: 1,
+        maxDistance: 40,
+        rolloffFactor: 1.4,
+      });
+      entityBus.connect(entityFilter).connect(panner).connect(master);
+
+      const breath = noiseSource(true);
+      const breathBp = actx.createBiquadFilter();
+      breathBp.type = "bandpass";
+      breathBp.frequency.value = 650;
+      breathBp.Q.value = 0.9;
+      const breathGain = actx.createGain();
+      breathGain.gain.value = 0.18;
+      const breathLfo = actx.createOscillator();
+      breathLfo.frequency.value = 0.38;
+      const breathDepth = actx.createGain();
+      breathDepth.gain.value = 0.18;
+      breathLfo.connect(breathDepth).connect(breathGain.gain);
+      breath.connect(breathBp).connect(breathGain).connect(entityBus);
+
+      const growl = actx.createOscillator();
+      growl.type = "sawtooth";
+      growl.frequency.value = 52;
+      const growlLp = actx.createBiquadFilter();
+      growlLp.type = "lowpass";
+      growlLp.frequency.value = 170;
+      const growlGain = actx.createGain();
+      growlGain.gain.value = 0.22;
+      const growlLfo = actx.createOscillator();
+      growlLfo.frequency.value = 0.21;
+      const growlDepth = actx.createGain();
+      growlDepth.gain.value = 6;
+      growlLfo.connect(growlDepth).connect(growl.frequency);
+      growl.connect(growlLp).connect(growlGain).connect(entityBus);
+      breath.start(); breathLfo.start(); growl.start(); growlLfo.start();
+
+      heartBus = actx.createGain();
+      heartBus.gain.value = 1;
+      heartBus.connect(master);
+    }
+
+    function noiseSource(loop) {
+      const src = actx.createBufferSource();
+      src.buffer = noiseBuf;
+      src.loop = loop;
+      return src;
+    }
+
+    function envelope(gainNode, t, peak, attack, decay) {
+      gainNode.gain.setValueAtTime(0.0001, t);
+      gainNode.gain.exponentialRampToValueAtTime(peak, t + attack);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
+    }
+
+    function footstep() {
+      if (!actx) return;
+      const t = actx.currentTime;
+      const src = noiseSource(false);
+      const lp = actx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 320;
+      const g = actx.createGain();
+      envelope(g, t, 1.4, 0.005, 0.16);
+      src.connect(lp).connect(g).connect(entityBus);
+      src.start(t, Math.random() * 1.5, 0.25);
+      const thud = actx.createOscillator();
+      thud.frequency.setValueAtTime(90, t);
+      thud.frequency.exponentialRampToValueAtTime(40, t + 0.12);
+      const tg = actx.createGain();
+      envelope(tg, t, 0.9, 0.004, 0.14);
+      thud.connect(tg).connect(entityBus);
+      thud.start(t);
+      thud.stop(t + 0.2);
+    }
+
+    function heartbeat(volume) {
+      if (!actx) return;
+      const t = actx.currentTime;
+      for (const [offset, level] of [[0, 1], [0.17, 0.7]]) {
+        const o = actx.createOscillator();
+        o.frequency.setValueAtTime(58, t + offset);
+        o.frequency.exponentialRampToValueAtTime(36, t + offset + 0.14);
+        const g = actx.createGain();
+        envelope(g, t + offset, volume * level, 0.006, 0.16);
+        o.connect(g).connect(heartBus);
+        o.start(t + offset);
+        o.stop(t + offset + 0.25);
+      }
+    }
+
+    // Dissonant hit the first time it sees you.
+    function sting() {
+      if (!actx) return;
+      const t = actx.currentTime;
+      const out = actx.createGain();
+      envelope(out, t, 0.32, 0.01, 1.8);
+      out.connect(master);
+      for (const f of [155, 164, 233, 311, 466]) {
+        const o = actx.createOscillator();
+        o.type = "sawtooth";
+        o.frequency.value = f;
+        o.detune.value = (Math.random() - 0.5) * 30;
+        o.connect(out);
+        o.start(t);
+        o.stop(t + 2);
+      }
+    }
+
+    function scream() {
+      if (!actx) return;
+      const t = actx.currentTime;
+      const out = actx.createGain();
+      envelope(out, t, 0.75, 0.01, 1.3);
+      out.connect(master);
+      const n = noiseSource(false);
+      const bp = actx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.setValueAtTime(900, t);
+      bp.frequency.exponentialRampToValueAtTime(2600, t + 0.9);
+      n.connect(bp).connect(out);
+      n.start(t);
+      for (const f of [220, 233, 349]) {
+        const o = actx.createOscillator();
+        o.type = "sawtooth";
+        o.frequency.setValueAtTime(f, t);
+        o.frequency.exponentialRampToValueAtTime(f * 2.4, t + 1);
+        o.connect(out);
+        o.start(t);
+        o.stop(t + 1.4);
+      }
+    }
+
+    function setParam(param, value) {
+      if (param) param.value = value;
+    }
+
+    function updateAudio(dt) {
+      if (!actx) return;
+      const L = actx.listener;
+      const fx = Math.cos(player.angle), fz = Math.sin(player.angle);
+      if (L.positionX) {
+        setParam(L.positionX, player.x); setParam(L.positionY, 0); setParam(L.positionZ, player.y);
+        setParam(L.forwardX, fx); setParam(L.forwardY, 0); setParam(L.forwardZ, fz);
+        setParam(L.upX, 0); setParam(L.upY, 1); setParam(L.upZ, 0);
+      } else {
+        L.setPosition(player.x, 0, player.y);
+        L.setOrientation(fx, 0, fz, 0, 1, 0);
+      }
+      if (panner.positionX) {
+        setParam(panner.positionX, entity.x); setParam(panner.positionY, 0); setParam(panner.positionZ, entity.y);
+      } else {
+        panner.setPosition(entity.x, 0, entity.y);
+      }
+      const t = actx.currentTime;
+      const audible = entity.active && state === "playing";
+      entityBus.gain.setTargetAtTime(audible ? 1 : 0, t, 0.3);
+      entityFilter.frequency.setTargetAtTime(lineOfSight ? 9000 : 650, t, 0.2);
+
+      if (!audible) return;
+      entity.stepTimer -= dt;
+      if (entity.stepTimer <= 0) {
+        footstep();
+        entity.stepTimer = 1.05 / entity.speed;
+      }
+      const dist = Math.hypot(entity.x - player.x, entity.y - player.y);
+      const closeness = Math.max(0, 1 - dist / 12);
+      heartTimer -= dt;
+      if (closeness > 0 && heartTimer <= 0) {
+        heartbeat(0.15 + 0.75 * closeness);
+        heartTimer = 60 / (62 + 110 * closeness);
+      }
+    }
+
+    function setMuted(value) {
+      muted = value;
+      if (actx) master.gain.setTargetAtTime(muted ? 0 : 0.9, actx.currentTime, 0.05);
+    }
+
+    // ---------- Rendering ----------
+    function drawCeilingFloor() {
+      const w = canvas.width, h = canvas.height, mid = h / 2;
       ctx.fillStyle = ceilGrad;
       ctx.fillRect(0, 0, w, mid);
-
-      const floorGrad = ctx.createLinearGradient(0, mid, 0, h);
-      floorGrad.addColorStop(0, "#3d3510");
-      floorGrad.addColorStop(1, "#2a2408");
       ctx.fillStyle = floorGrad;
       ctx.fillRect(0, mid, w, h - mid);
     }
 
+    // DDA raycaster: exact grid hits, fills the z-buffer used to occlude the entity.
     function drawWalls() {
-      const w = canvas.width;
-      const h = canvas.height;
+      const w = canvas.width, h = canvas.height;
       const stripW = w / RAYS;
-
+      const px = player.x, py = player.y;
       for (let i = 0; i < RAYS; i++) {
-        const rayAngle = player.angle - FOV / 2 + (i / RAYS) * FOV;
-        const dist = castRay(rayAngle);
-        const wallH = Math.min((h * 0.75) / dist, h);
-        const shade = Math.max(0.15, 1 - dist / MAX_DEPTH) * flicker;
-        const r = Math.floor(180 * shade + 40);
-        const g = Math.floor(150 * shade + 30);
-        const b = Math.floor(40 * shade + 5);
-        ctx.fillStyle = `rgb(${r},${g},${b})`;
-        ctx.fillRect(i * stripW, (h - wallH) / 2, stripW + 1, wallH);
+        const rel = -FOV / 2 + ((i + 0.5) / RAYS) * FOV;
+        const angle = player.angle + rel;
+        const dirX = Math.cos(angle), dirY = Math.sin(angle);
+        let mapX = Math.floor(px), mapY = Math.floor(py);
+        const deltaX = Math.abs(1 / dirX), deltaY = Math.abs(1 / dirY);
+        const stepX = dirX < 0 ? -1 : 1, stepY = dirY < 0 ? -1 : 1;
+        let sideX = dirX < 0 ? (px - mapX) * deltaX : (mapX + 1 - px) * deltaX;
+        let sideY = dirY < 0 ? (py - mapY) * deltaY : (mapY + 1 - py) * deltaY;
+        let side = 0, cell = 0, guard = 0;
+        while (guard++ < 64) {
+          if (sideX < sideY) { sideX += deltaX; mapX += stepX; side = 0; }
+          else { sideY += deltaY; mapY += stepY; side = 1; }
+          cell = mapX < 0 || mapY < 0 || mapX >= W || mapY >= H ? 1 : GRID[mapY * W + mapX];
+          if (cell !== 0) break;
+        }
+        const rayDist = side === 0 ? sideX - deltaX : sideY - deltaY;
+        const dist = Math.max(rayDist * Math.cos(rel), 0.0001);
+        zBuffer[i] = dist;
+        let wallX = side === 0 ? py + rayDist * dirY : px + rayDist * dirX;
+        wallX -= Math.floor(wallX);
 
-        if (i % 8 === 0) {
-          ctx.fillStyle = `rgba(0,0,0,${0.08 * (1 - shade)})`;
-          ctx.fillRect(i * stripW, (h - wallH) / 2, 1, wallH);
+        const wallH = Math.min((h * 0.75) / dist, h * 4);
+        const y0 = (h - wallH) / 2;
+        const x = i * stripW;
+        let shade, color;
+        if (cell === 2) {
+          shade = Math.max(0.55, 1 - dist / (MAX_DEPTH * 1.6)) * (0.92 + flicker * 0.08);
+          const level = Math.min(SHADES - 1, (shade * (SHADES - 1)) | 0);
+          color = wallX < 0.14 || wallX > 0.86 ? pal.frame[level] : pal.exit[level];
+        } else {
+          shade = Math.max(0.12, 1 - dist / MAX_DEPTH) * flicker;
+          const level = Math.min(SHADES - 1, (shade * (SHADES - 1)) | 0);
+          color = (wallX * 6) % 1 < 0.1 ? pal.stripe[level] : side === 1 ? pal.side[level] : pal.wall[level];
+          ctx.fillStyle = color;
+          ctx.fillRect(x, y0, stripW + 1, wallH);
+          ctx.fillStyle = pal.base[level];
+          ctx.fillRect(x, y0 + wallH * 0.93, stripW + 1, wallH * 0.07);
+          continue;
+        }
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y0, stripW + 1, wallH);
+      }
+    }
+
+    // Billboard sprite clipped per column against the wall z-buffer.
+    function drawEntity(time) {
+      if (!entity.active || !faceReady) return;
+      const dx = entity.x - player.x, dy = entity.y - player.y;
+      const dist = Math.hypot(dx, dy);
+      let ang = Math.atan2(dy, dx) - player.angle;
+      while (ang > Math.PI) ang -= Math.PI * 2;
+      while (ang < -Math.PI) ang += Math.PI * 2;
+      if (Math.abs(ang) > FOV / 2 + 0.5) return;
+      const perp = Math.max(dist * Math.cos(ang), 0.2);
+      const w = canvas.width, h = canvas.height;
+      const stripW = w / RAYS;
+      const spriteH = ((h * 0.75) / perp) * 0.9;
+      const spriteW = spriteH * (face.width / face.height);
+      const screenX = ((ang + FOV / 2) / FOV) * w;
+      const bob = Math.sin(time * 7) * spriteH * 0.025;
+      const top = h / 2 - spriteH * 0.5 + bob;
+      const left = screenX - spriteW / 2;
+      const shade = Math.max(0.1, 1 - dist / MAX_DEPTH) * flicker * (0.85 + Math.random() * 0.15);
+      const startCol = Math.max(0, Math.floor(left / stripW));
+      const endCol = Math.min(RAYS - 1, Math.floor((left + spriteW) / stripW));
+      const imgW = face.width, imgH = face.height;
+      ctx.fillStyle = `rgba(14,10,0,${Math.min(0.92, (1 - shade) * 0.95 + 0.06)})`;
+      // Draw each contiguous run of unoccluded columns in one call, so there is no seam banding.
+      let col = startCol;
+      while (col <= endCol) {
+        while (col <= endCol && perp >= zBuffer[col]) col++;
+        if (col > endCol) break;
+        const runStart = col;
+        while (col <= endCol && perp < zBuffer[col]) col++;
+        const x0 = Math.max(left, runStart * stripW);
+        const x1 = Math.min(left + spriteW, col * stripW);
+        if (x1 <= x0) continue;
+        const sx = ((x0 - left) / spriteW) * imgW;
+        const sw = ((x1 - x0) / spriteW) * imgW;
+        ctx.drawImage(face, sx, 0, sw, imgH, x0, top, x1 - x0, spriteH);
+        ctx.fillRect(x0, top, x1 - x0, spriteH);
+      }
+    }
+
+    function drawOverlays() {
+      const w = canvas.width, h = canvas.height;
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, w, h);
+      if (entity.active && state === "playing") {
+        const dist = Math.hypot(entity.x - player.x, entity.y - player.y);
+        const danger = Math.max(0, 1 - dist / 5);
+        if (danger > 0) {
+          ctx.globalAlpha = danger * (0.7 + Math.sin(performance.now() * 0.012) * 0.3);
+          ctx.fillStyle = redVignette;
+          ctx.fillRect(0, 0, w, h);
+          ctx.globalAlpha = 1;
         }
       }
     }
 
-    function drawVignette() {
-      const g = ctx.createRadialGradient(
-        canvas.width / 2, canvas.height / 2, canvas.height * 0.2,
-        canvas.width / 2, canvas.height / 2, canvas.height * 0.85
-      );
-      g.addColorStop(0, "rgba(0,0,0,0)");
-      g.addColorStop(1, "rgba(0,0,0,0.55)");
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    function formatTime(seconds) {
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60).toString().padStart(2, "0");
+      return `${m}:${s}`;
     }
 
     function drawHUD() {
-      const mins = Math.floor(timeLeft / 60);
-      const secs = Math.floor(timeLeft % 60).toString().padStart(2, "0");
+      const h = canvas.height;
       ctx.fillStyle = "rgba(0,0,0,0.4)";
-      ctx.fillRect(10, 10, 160, 36);
-      ctx.fillStyle = timeLeft < 30 ? "#cc4444" : "#c9a227";
+      ctx.fillRect(10, 10, 170, 36);
+      ctx.fillStyle = "#c9a227";
       ctx.font = "16px Courier New";
-      ctx.fillText(`TIEMPO ${mins}:${secs}`, 20, 34);
+      ctx.fillText(`TIEMPO ${formatTime(elapsed)}`, 20, 34);
 
-      const dist = Math.hypot(player.x - EXIT.x - 0.5, player.y - EXIT.y - 0.5);
-      const hint = dist < 3 ? "¡La salida está cerca!" : "Busca la salida...";
-      ctx.fillStyle = "#a0803088";
+      // Stamina
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      ctx.fillRect(16, h - 34, 124, 12);
+      ctx.fillStyle = exhausted ? "#8a3030" : "#c9a227";
+      ctx.fillRect(18, h - 32, 120 * player.stamina, 8);
+      ctx.fillStyle = "#a0803099";
+      ctx.font = "12px Courier New";
+      ctx.fillText(muted ? "ENERGÍA · SILENCIO (M)" : "ENERGÍA", 16, h - 40);
+
+      let hint = "Busca la salida verde...";
+      const exitDist = Math.hypot(player.x - EXIT.x, player.y - (EXIT.y + 0.5));
+      if (exitDist < 4) hint = "¡La salida está cerca!";
+      else if (!entity.active) hint = "Algo despierta en los pasillos...";
+      else if (lineOfSight) hint = "TE VE. CORRE.";
+      ctx.fillStyle = lineOfSight && entity.active ? "#e05050cc" : "#a0803099";
       ctx.font = "13px Courier New";
-      ctx.fillText(hint, canvas.width / 2 - ctx.measureText(hint).width / 2, canvas.height - 20);
+      ctx.fillText(hint, canvas.width / 2 - ctx.measureText(hint).width / 2, h - 20);
     }
 
-    function checkWin() {
-      const ex = EXIT.x + 0.5;
-      const ey = EXIT.y + 0.5;
-      if (Math.hypot(player.x - ex, player.y - ey) < 0.6) {
-        won = true;
-        running = false;
-        document.exitPointerLock();
-        winScreen.style.display = "flex";
+    // ---------- Game flow ----------
+    function lockPointer() {
+      try {
+        const result = canvas.requestPointerLock();
+        if (result && typeof result.catch === "function") result.catch(() => {});
+      } catch (e) {
+        // Pointer lock is optional; arrow keys still turn the camera.
       }
     }
 
-    function update(dt) {
-      if (!running || won) return;
+    function releasePointer() {
+      if (document.pointerLockElement) document.exitPointerLock();
+    }
 
-      timeLeft -= dt;
-      if (timeLeft <= 0) {
-        timeLeft = 0;
-        running = false;
-        overlay.style.display = "flex";
-        overlay.querySelector("h1").textContent = "PERDISTE";
-        overlay.querySelectorAll("p")[0].textContent = "El tiempo se acabó.";
-        overlay.querySelectorAll("p")[1].textContent = "Sigues atrapado en los Backrooms.";
-        overlay.querySelectorAll("p")[2].textContent = "";
-        overlay.querySelector(".hint").textContent = "";
-        document.getElementById("startBtn").textContent = "REINTENTAR";
-        document.exitPointerLock();
+    function endGame(outcome) {
+      state = outcome;
+      releasePointer();
+      if (outcome === "won") {
+        document.getElementById("winTime").textContent = `Tiempo: ${formatTime(elapsed)}`;
+        winScreen.style.display = "flex";
         return;
       }
+      scream();
+      document.getElementById("caughtTime").textContent = `Sobreviviste ${formatTime(elapsed)}`;
+      scare.style.display = "block";
+      scare.style.animation = "none";
+      void scare.offsetWidth;
+      scare.style.animation = "";
+      setTimeout(() => {
+        scare.style.display = "none";
+        if (state === "caught") caughtScreen.style.display = "flex";
+      }, 950);
+    }
 
-      flicker = 0.88 + Math.random() * 0.12 + Math.sin(Date.now() * 0.003) * 0.04;
+    function update(dt, time) {
+      if (state !== "playing") return;
+      elapsed += dt;
+      flicker = 0.88 + Math.random() * 0.12 + Math.sin(time * 3) * 0.04;
 
-      let move = 0;
-      let rot = 0;
-      if (keys["w"] || keys["arrowup"]) move += 1;
-      if (keys["s"] || keys["arrowdown"]) move -= 1;
-      if (keys["a"]) rot -= 1;
-      if (keys["d"]) rot += 1;
-
-      player.angle += rot * ROT_SPEED * dt;
-      const nx = player.x + Math.cos(player.angle) * move * MOVE_SPEED * dt;
-      const ny = player.y + Math.sin(player.angle) * move * MOVE_SPEED * dt;
-      tryMove(nx, ny);
-
+      let forward = 0, strafe = 0;
+      if (keys["w"] || keys["arrowup"]) forward += 1;
+      if (keys["s"] || keys["arrowdown"]) forward -= 1;
+      if (keys["d"]) strafe += 1;
+      if (keys["a"]) strafe -= 1;
       if (keys["arrowleft"]) player.angle -= ROT_SPEED * dt;
       if (keys["arrowright"]) player.angle += ROT_SPEED * dt;
 
-      checkWin();
+      const moving = forward !== 0 || strafe !== 0;
+      const wantsRun = keys["shift"] && moving && !exhausted;
+      if (wantsRun) {
+        player.stamina = Math.max(0, player.stamina - dt / 3.2);
+        if (player.stamina === 0) exhausted = true;
+      } else {
+        player.stamina = Math.min(1, player.stamina + dt / 5);
+        if (exhausted && player.stamina > 0.35) exhausted = false;
+      }
+      const speed = wantsRun ? RUN_SPEED : WALK_SPEED;
+      if (moving) {
+        const len = Math.hypot(forward, strafe);
+        const cos = Math.cos(player.angle), sin = Math.sin(player.angle);
+        const mx = ((cos * forward - sin * strafe) / len) * speed * dt;
+        const my = ((sin * forward + cos * strafe) / len) * speed * dt;
+        tryMove(player, player.x + mx, player.y + my, 0.22);
+      }
+
+      if (Math.hypot(player.x - EXIT.x, player.y - (EXIT.y + 0.5)) < 0.75) {
+        endGame("won");
+        return;
+      }
+
+      if (!entity.active && elapsed >= GRACE) spawnEntity();
+      if (entity.active) {
+        entity.speed = Math.min(ENTITY_MAX_SPEED, ENTITY_SPEED + (elapsed - GRACE) * 0.006);
+        lineOfSight = hasLineOfSight(entity.x, entity.y, player.x, player.y);
+        if (lineOfSight && !entity.seen) {
+          entity.seen = true;
+          sting();
+        }
+        pathTimer -= dt;
+        if (pathTimer <= 0) {
+          computeDistanceField();
+          pathTimer = 0.25;
+        }
+        let tx = player.x, ty = player.y;
+        const dist = Math.hypot(player.x - entity.x, player.y - entity.y);
+        if (!(lineOfSight && dist < 3)) {
+          // Step toward the neighbouring cell closest to the player.
+          const ex = Math.floor(entity.x), ey = Math.floor(entity.y);
+          let best = distField[ey * W + ex];
+          tx = ex + 0.5; ty = ey + 0.5;
+          const n = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+          for (let k = 0; k < 4; k++) {
+            const nx = ex + n[k][0], ny = ey + n[k][1];
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+            const d = distField[ny * W + nx];
+            if (d >= 0 && (best < 0 || d < best)) { best = d; tx = nx + 0.5; ty = ny + 0.5; }
+          }
+          // Recenter in the corridor before turning so it never clips corners.
+          const offX = entity.x - (ex + 0.5), offY = entity.y - (ey + 0.5);
+          if (tx !== ex + 0.5 && Math.abs(offY) > 0.08) { tx = entity.x; ty = ey + 0.5; }
+          else if (ty !== ey + 0.5 && Math.abs(offX) > 0.08) { tx = ex + 0.5; ty = entity.y; }
+        }
+        const vx = tx - entity.x, vy = ty - entity.y;
+        const vl = Math.hypot(vx, vy);
+        if (vl > 0.001) {
+          const step = Math.min(vl, entity.speed * dt);
+          tryMove(entity, entity.x + (vx / vl) * step, entity.y + (vy / vl) * step, 0.18);
+        }
+        if (Math.hypot(player.x - entity.x, player.y - entity.y) < CATCH_DIST) {
+          endGame("caught");
+        }
+      }
     }
 
-    function render() {
+    function render(time) {
       drawCeilingFloor();
       drawWalls();
-      drawVignette();
-      if (running) drawHUD();
+      drawEntity(time);
+      drawOverlays();
+      if (state === "playing") drawHUD();
     }
 
     function loop(ts) {
       const dt = Math.min((ts - lastTime) / 1000, 0.05);
       lastTime = ts;
-      update(dt);
-      render();
+      const time = ts / 1000;
+      update(dt, time);
+      updateAudio(dt);
+      render(time);
       requestAnimationFrame(loop);
     }
 
     function resetGame() {
-      player = { x: 1.5, y: 1.5, angle: 0 };
-      timeLeft = TIME_LIMIT;
-      won = false;
-      running = false;
+      player.x = 1.5; player.y = 1.5; player.angle = 0; player.stamina = 1;
+      entity.active = false; entity.seen = false;
+      elapsed = 0; pathTimer = 0; heartTimer = 0;
+      exhausted = false; lineOfSight = false;
       winScreen.style.display = "none";
-      overlay.style.display = "flex";
-      overlay.querySelector("h1").textContent = "BACKROOMS";
-      overlay.querySelectorAll("p")[0].textContent = "Has caído entre la realidad.";
-      overlay.querySelectorAll("p")[1].textContent = "Alfombras húmedas. Paredes amarillas. Luces que zumban.";
-      overlay.querySelectorAll("p")[2].textContent = "Encuentra la salida antes de que el tiempo se acabe.";
-      overlay.querySelector(".hint").textContent = 'Haz clic en "Entrar" · WASD para moverte · mouse para mirar · Esc para liberar el mouse';
-      document.getElementById("startBtn").textContent = "ENTRAR";
+      caughtScreen.style.display = "none";
+      scare.style.display = "none";
     }
 
     function startGame() {
+      if (IS_TOUCH) return;
+      initAudio();
+      resetGame();
       overlay.style.display = "none";
-      running = true;
-      canvas.requestPointerLock();
+      state = "playing";
+      lockPointer();
+    }
+
+    if (IS_TOUCH) {
+      document.getElementById("controls").style.display = "none";
+      document.getElementById("startBtn").style.display = "none";
+      document.querySelector(".note").textContent =
+        "Este juego se disfruta en computadora con teclado y mouse. Ábrelo desde una laptop o desktop para jugar.";
     }
 
     document.getElementById("startBtn").addEventListener("click", startGame);
-    document.getElementById("retryBtn").addEventListener("click", () => {
-      resetGame();
-      startGame();
-    });
+    document.getElementById("winRetry").addEventListener("click", startGame);
+    document.getElementById("caughtRetry").addEventListener("click", startGame);
+    caughtScreen.addEventListener("click", (e) => { if (e.target === caughtScreen) startGame(); });
 
     document.addEventListener("keydown", (e) => {
-      keys[e.key.toLowerCase()] = true;
+      const k = e.key.toLowerCase();
+      keys[k] = true;
+      if (k === "m") setMuted(!muted);
+      if (k === "r" && (state === "caught" || state === "won")) startGame();
+      if (k.startsWith("arrow") || k === " ") e.preventDefault();
     });
     document.addEventListener("keyup", (e) => {
       keys[e.key.toLowerCase()] = false;
     });
+    window.addEventListener("blur", () => {
+      for (const k in keys) keys[k] = false;
+    });
 
     document.addEventListener("mousemove", (e) => {
-      if (document.pointerLockElement === canvas && running) {
+      if (document.pointerLockElement === canvas && state === "playing") {
         player.angle += e.movementX * 0.002;
       }
     });
 
     canvas.addEventListener("click", () => {
-      if (running && document.pointerLockElement !== canvas) {
-        canvas.requestPointerLock();
-      }
+      if (state === "playing" && document.pointerLockElement !== canvas) lockPointer();
     });
+
+    // Test hook, only with ?debug in the URL.
+    if (new URLSearchParams(location.search).has("debug")) {
+      window.__game = { player, entity, state: () => state, spawnEntity, startGame };
+    }
 
     requestAnimationFrame(loop);
   </script>
