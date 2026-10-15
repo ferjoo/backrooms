@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Backrooms</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      overflow: hidden;
+      font-family: "Courier New", monospace;
+      cursor: crosshair;
+    }
+    #game { display: block; width: 100vw; height: 100vh; }
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.85);
+      color: #c9a227;
+      z-index: 10;
+      text-align: center;
+      padding: 2rem;
+    }
+    #overlay h1 {
+      font-size: clamp(2rem, 6vw, 3.5rem);
+      letter-spacing: 0.3em;
+      margin-bottom: 0.5rem;
+      text-shadow: 0 0 20px #c9a227;
+    }
+    #overlay p { color: #a08030; margin: 0.4rem 0; font-size: 1rem; }
+    #overlay .hint { color: #666; font-size: 0.85rem; margin-top: 1.5rem; }
+    #overlay button {
+      margin-top: 2rem;
+      padding: 0.8rem 2.5rem;
+      font-family: inherit;
+      font-size: 1rem;
+      background: #3a3200;
+      color: #e8c84a;
+      border: 2px solid #c9a227;
+      cursor: pointer;
+      letter-spacing: 0.15em;
+    }
+    #overlay button:hover { background: #5a4e00; }
+    #back {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      color: #a08030;
+      font-size: 0.8rem;
+      text-decoration: none;
+      z-index: 20;
+    }
+    #back:hover { color: #e8c84a; text-decoration: underline; }
+    #hud {
+      position: fixed;
+      bottom: 1rem;
+      left: 1rem;
+      color: #c9a22788;
+      font-size: 0.8rem;
+      z-index: 5;
+      pointer-events: none;
+    }
+    #win {
+      position: fixed;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(10, 8, 0, 0.92);
+      color: #e8c84a;
+      z-index: 15;
+      text-align: center;
+    }
+    #win h2 { font-size: 2rem; margin-bottom: 1rem; }
+    #win button {
+      margin-top: 1.5rem;
+      padding: 0.7rem 2rem;
+      font-family: inherit;
+      background: #3a3200;
+      color: #e8c84a;
+      border: 2px solid #c9a227;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="hud">WASD mover · Mouse mirar · Esc liberar el mouse</div>
+  <a id="back" href="https://ferjoo.github.io">← ferjoo.github.io</a>
+
+  <div id="overlay">
+    <h1>BACKROOMS</h1>
+    <p>Has caído entre la realidad.</p>
+    <p>Alfombras húmedas. Paredes amarillas. Luces que zumban.</p>
+    <p>Encuentra la salida antes de que el tiempo se acabe.</p>
+    <p class="hint">Haz clic en "Entrar" · WASD para moverte · mouse para mirar · Esc para liberar el mouse</p>
+    <button id="startBtn">ENTRAR</button>
+  </div>
+
+  <div id="win">
+    <h2>ESCAPASTE</h2>
+    <p>Lograste salir de los Backrooms... por ahora.</p>
+    <button id="retryBtn">JUGAR DE NUEVO</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const overlay = document.getElementById("overlay");
+    const winScreen = document.getElementById("win");
+
+    const MAP = [
+      "11111111111111111",
+      "10000000010000001",
+      "10111110110111101",
+      "10100010100100001",
+      "10101110111110101",
+      "10001000000000101",
+      "11110111111110101",
+      "10000100000000101",
+      "10111110111110101",
+      "10100010000000101",
+      "10101111111110101",
+      "10000000000000001",
+      "10111111111111101",
+      "10000000000000001",
+      "11111111111111111",
+    ];
+
+    const W = MAP[0].length;
+    const H = MAP.length;
+    const EXIT = { x: 15, y: 13 };
+    const TIME_LIMIT = 120;
+
+    let player = { x: 1.5, y: 1.5, angle: 0 };
+    let keys = {};
+    let running = false;
+    let won = false;
+    let timeLeft = TIME_LIMIT;
+    let flicker = 1;
+    let lastTime = 0;
+
+    const FOV = Math.PI / 3;
+    const RAYS = 200;
+    const MAX_DEPTH = 16;
+    const MOVE_SPEED = 2.8;
+    const ROT_SPEED = 2.2;
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener("resize", resize);
+    resize();
+
+    function isWall(x, y) {
+      const col = Math.floor(x);
+      const row = Math.floor(y);
+      if (row < 0 || row >= H || col < 0 || col >= W) return true;
+      return MAP[row][col] === "1";
+    }
+
+    function tryMove(nx, ny) {
+      const margin = 0.22;
+      if (!isWall(nx + margin, player.y) && !isWall(nx - margin, player.y)) player.x = nx;
+      if (!isWall(player.x, ny + margin) && !isWall(player.x, ny - margin)) player.y = ny;
+    }
+
+    function castRay(angle) {
+      const sin = Math.sin(angle);
+      const cos = Math.cos(angle);
+      let depth = 0;
+      while (depth < MAX_DEPTH) {
+        depth += 0.02;
+        const rx = player.x + cos * depth;
+        const ry = player.y + sin * depth;
+        if (isWall(rx, ry)) {
+          const dist = depth * Math.cos(angle - player.angle);
+          return Math.max(dist, 0.0001);
+        }
+      }
+      return MAX_DEPTH;
+    }
+
+    function drawCeilingFloor() {
+      const h = canvas.height;
+      const w = canvas.width;
+      const mid = h / 2;
+
+      const ceilGrad = ctx.createLinearGradient(0, 0, 0, mid);
+      ceilGrad.addColorStop(0, "#1a1400");
+      ceilGrad.addColorStop(1, "#2a2208");
+      ctx.fillStyle = ceilGrad;
+      ctx.fillRect(0, 0, w, mid);
+
+      const floorGrad = ctx.createLinearGradient(0, mid, 0, h);
+      floorGrad.addColorStop(0, "#3d3510");
+      floorGrad.addColorStop(1, "#2a2408");
+      ctx.fillStyle = floorGrad;
+      ctx.fillRect(0, mid, w, h - mid);
+    }
+
+    function drawWalls() {
+      const w = canvas.width;
+      const h = canvas.height;
+      const stripW = w / RAYS;
+
+      for (let i = 0; i < RAYS; i++) {
+        const rayAngle = player.angle - FOV / 2 + (i / RAYS) * FOV;
+        const dist = castRay(rayAngle);
+        const wallH = Math.min((h * 0.75) / dist, h);
+        const shade = Math.max(0.15, 1 - dist / MAX_DEPTH) * flicker;
+        const r = Math.floor(180 * shade + 40);
+        const g = Math.floor(150 * shade + 30);
+        const b = Math.floor(40 * shade + 5);
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fillRect(i * stripW, (h - wallH) / 2, stripW + 1, wallH);
+
+        if (i % 8 === 0) {
+          ctx.fillStyle = `rgba(0,0,0,${0.08 * (1 - shade)})`;
+          ctx.fillRect(i * stripW, (h - wallH) / 2, 1, wallH);
+        }
+      }
+    }
+
+    function drawVignette() {
+      const g = ctx.createRadialGradient(
+        canvas.width / 2, canvas.height / 2, canvas.height * 0.2,
+        canvas.width / 2, canvas.height / 2, canvas.height * 0.85
+      );
+      g.addColorStop(0, "rgba(0,0,0,0)");
+      g.addColorStop(1, "rgba(0,0,0,0.55)");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function drawHUD() {
+      const mins = Math.floor(timeLeft / 60);
+      const secs = Math.floor(timeLeft % 60).toString().padStart(2, "0");
+      ctx.fillStyle = "rgba(0,0,0,0.4)";
+      ctx.fillRect(10, 10, 160, 36);
+      ctx.fillStyle = timeLeft < 30 ? "#cc4444" : "#c9a227";
+      ctx.font = "16px Courier New";
+      ctx.fillText(`TIEMPO ${mins}:${secs}`, 20, 34);
+
+      const dist = Math.hypot(player.x - EXIT.x - 0.5, player.y - EXIT.y - 0.5);
+      const hint = dist < 3 ? "¡La salida está cerca!" : "Busca la salida...";
+      ctx.fillStyle = "#a0803088";
+      ctx.font = "13px Courier New";
+      ctx.fillText(hint, canvas.width / 2 - ctx.measureText(hint).width / 2, canvas.height - 20);
+    }
+
+    function checkWin() {
+      const ex = EXIT.x + 0.5;
+      const ey = EXIT.y + 0.5;
+      if (Math.hypot(player.x - ex, player.y - ey) < 0.6) {
+        won = true;
+        running = false;
+        document.exitPointerLock();
+        winScreen.style.display = "flex";
+      }
+    }
+
+    function update(dt) {
+      if (!running || won) return;
+
+      timeLeft -= dt;
+      if (timeLeft <= 0) {
+        timeLeft = 0;
+        running = false;
+        overlay.style.display = "flex";
+        overlay.querySelector("h1").textContent = "PERDISTE";
+        overlay.querySelectorAll("p")[0].textContent = "El tiempo se acabó.";
+        overlay.querySelectorAll("p")[1].textContent = "Sigues atrapado en los Backrooms.";
+        overlay.querySelectorAll("p")[2].textContent = "";
+        overlay.querySelector(".hint").textContent = "";
+        document.getElementById("startBtn").textContent = "REINTENTAR";
+        document.exitPointerLock();
+        return;
+      }
+
+      flicker = 0.88 + Math.random() * 0.12 + Math.sin(Date.now() * 0.003) * 0.04;
+
+      let move = 0;
+      let rot = 0;
+      if (keys["w"] || keys["arrowup"]) move += 1;
+      if (keys["s"] || keys["arrowdown"]) move -= 1;
+      if (keys["a"]) rot -= 1;
+      if (keys["d"]) rot += 1;
+
+      player.angle += rot * ROT_SPEED * dt;
+      const nx = player.x + Math.cos(player.angle) * move * MOVE_SPEED * dt;
+      const ny = player.y + Math.sin(player.angle) * move * MOVE_SPEED * dt;
+      tryMove(nx, ny);
+
+      if (keys["arrowleft"]) player.angle -= ROT_SPEED * dt;
+      if (keys["arrowright"]) player.angle += ROT_SPEED * dt;
+
+      checkWin();
+    }
+
+    function render() {
+      drawCeilingFloor();
+      drawWalls();
+      drawVignette();
+      if (running) drawHUD();
+    }
+
+    function loop(ts) {
+      const dt = Math.min((ts - lastTime) / 1000, 0.05);
+      lastTime = ts;
+      update(dt);
+      render();
+      requestAnimationFrame(loop);
+    }
+
+    function resetGame() {
+      player = { x: 1.5, y: 1.5, angle: 0 };
+      timeLeft = TIME_LIMIT;
+      won = false;
+      running = false;
+      winScreen.style.display = "none";
+      overlay.style.display = "flex";
+      overlay.querySelector("h1").textContent = "BACKROOMS";
+      overlay.querySelectorAll("p")[0].textContent = "Has caído entre la realidad.";
+      overlay.querySelectorAll("p")[1].textContent = "Alfombras húmedas. Paredes amarillas. Luces que zumban.";
+      overlay.querySelectorAll("p")[2].textContent = "Encuentra la salida antes de que el tiempo se acabe.";
+      overlay.querySelector(".hint").textContent = 'Haz clic en "Entrar" · WASD para moverte · mouse para mirar · Esc para liberar el mouse';
+      document.getElementById("startBtn").textContent = "ENTRAR";
+    }
+
+    function startGame() {
+      overlay.style.display = "none";
+      running = true;
+      canvas.requestPointerLock();
+    }
+
+    document.getElementById("startBtn").addEventListener("click", startGame);
+    document.getElementById("retryBtn").addEventListener("click", () => {
+      resetGame();
+      startGame();
+    });
+
+    document.addEventListener("keydown", (e) => {
+      keys[e.key.toLowerCase()] = true;
+    });
+    document.addEventListener("keyup", (e) => {
+      keys[e.key.toLowerCase()] = false;
+    });
+
+    document.addEventListener("mousemove", (e) => {
+      if (document.pointerLockElement === canvas && running) {
+        player.angle += e.movementX * 0.002;
+      }
+    });
+
+    canvas.addEventListener("click", () => {
+      if (running && document.pointerLockElement !== canvas) {
+        canvas.requestPointerLock();
+      }
+    });
+
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
